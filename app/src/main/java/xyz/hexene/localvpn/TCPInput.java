@@ -190,17 +190,27 @@ public class TCPInput implements Runnable
                      * 以下操作：把之前传过的部分全部跳过
                      */
                     int reconnectTotalByteCnt = 0;
-                    while (tcb.totalByteTransferred-reconnectTotalByteCnt>ByteBufferPool.BUFFER_SIZE){
+                    while (tcb.totalByteTransferred>reconnectTotalByteCnt){
                         rc = inputStream.read(buff, 0, ByteBufferPool.BUFFER_SIZE);
                         reconnectTotalByteCnt += rc;
                     }
-                    while (reconnectTotalByteCnt<tcb.totalByteTransferred) {
-                        rc = inputStream.read(buff, 0, tcb.totalByteTransferred-reconnectTotalByteCnt);
-                        reconnectTotalByteCnt += rc;
-                    }
                     /**
-                     * 现在，跟断点位置对齐，即tcb.totalByteTransferred。可以从断点位置开始继续传输了
+                     * 将超出来的部分切割，而这部分是新数据，是要传输的
                      */
+                    receiveBuffer = ByteBufferPool.acquire();
+                    receiveBuffer.position(HEADER_SIZE);
+                    int cutLength = reconnectTotalByteCnt-tcb.totalByteTransferred;
+                    receiveBuffer.put(buff, ByteBufferPool.BUFFER_SIZE-cutLength, cutLength);
+                    referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
+                            tcb.mySequenceNum, tcb.myAcknowledgementNum, cutLength);
+                    tcb.mySequenceNum += cutLength; // Next sequence number
+                    receiveBuffer.position(HEADER_SIZE + cutLength);
+                    outputQueue.offer(receiveBuffer);
+                    /**
+                     * 断点附近的复杂情况处理完毕，现在可以任性地传输了
+                     */
+                    receiveBuffer = ByteBufferPool.acquire();
+                    receiveBuffer.position(HEADER_SIZE);
                     while ((rc = reconnectChannel.read(receiveBuffer))!=-1) {
                         referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
                                 tcb.mySequenceNum, tcb.myAcknowledgementNum, rc);
