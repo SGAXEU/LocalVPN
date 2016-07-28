@@ -129,13 +129,13 @@ public class TCPInput implements Runnable
         ByteBuffer receiveBuffer = ByteBufferPool.acquire();
         // Leave space for the header
         receiveBuffer.position(HEADER_SIZE);
+        int readBytes = 0;
 
         TCB tcb = (TCB) key.attachment();
         synchronized (tcb)
         {
             Packet referencePacket = tcb.referencePacket;
             SocketChannel inputChannel = (SocketChannel) key.channel();
-            int readBytes;
 
             InetAddress destinationAddress = referencePacket.ip4Header.destinationAddress;
             Packet.TCPHeader tcpHeader = referencePacket.tcpHeader;
@@ -147,17 +147,14 @@ public class TCPInput implements Runnable
             try
             {
                 readBytes = inputChannel.read(receiveBuffer);
-                if (referencePacket.ip4Header.sourceAddress.toString().equals("/52.88.216.252")&&sourcePort==80)
-                {
-                    tcb.totalByteTransferred+=readBytes;
-                    Log.d("52server","byteCnt:"+tcb.totalByteTransferred);
-                }
+                tcb.totalByteTransferred+=readBytes;
             }
             catch (Exception e)
             {
+                Log.d(TAG, readBytes+"");
                 Log.d(TAG, "Network read error: " + tcb.ipAndPort + " " + e.toString());
 
-                //此处之前应该打断点，使网络恢复之后再进行下面的操作
+                //此处之前应该阻塞，使网络恢复之后再进行下面的操作
                 try {
                     SocketChannel reconnectChannel = SocketChannel.open();
                     reconnectChannel.configureBlocking(true);//设置为阻塞模式
@@ -166,7 +163,7 @@ public class TCPInput implements Runnable
                     OutputStream outputStream = reconnectChannel.socket().getOutputStream();
                     InputStream inputStream = reconnectChannel.socket().getInputStream();
 
-                    String msg = "GET /wp-content/uploads/2015/09/DSC4495.jpg HTTP/1.1\r\n" +
+                    String msg = "GET /photo/orange.jpg HTTP/1.1\r\n" +
                             "User-Agent: Dalvik/2.1.0 (Linux; U; Android 6.0.1; Nexus 6P Build/MMB29M)\r\n" +
                             "Host: 52.88.216.252\r\n" +
                             "Connection: close\r\n" +
@@ -184,7 +181,6 @@ public class TCPInput implements Runnable
                     byte[] buff = new byte[ByteBufferPool.BUFFER_SIZE];
                     outputStream.write(msgByte);
                     outputStream.flush();
-//                    reconnectChannel.write(ByteBuffer.wrap(msgByte));
 
                     /**
                      * 以下操作：把之前传过的部分全部跳过
@@ -195,7 +191,7 @@ public class TCPInput implements Runnable
                         reconnectTotalByteCnt += rc;
                     }
                     /**
-                     * 将超出来的部分切割，而这部分是新数据，是要传输的
+                     * 将超出来的部分切割出来，而这部分是新数据，是要传输的
                      */
                     receiveBuffer = ByteBufferPool.acquire();
                     receiveBuffer.position(HEADER_SIZE);
@@ -220,7 +216,18 @@ public class TCPInput implements Runnable
                         receiveBuffer = ByteBufferPool.acquire();
                         receiveBuffer.position(HEADER_SIZE);
                     }
-                    receiveBuffer.limit(HEADER_SIZE);
+                    /**
+                     * End of Stream Operation
+                     */
+                    if (rc == -1)
+                    {
+                        // End of stream, stop waiting until we push more data
+                        key.interestOps(0);
+                        tcb.waitingForNetworkData = false;
+                        tcb.status = TCBStatus.LAST_ACK;
+                        referencePacket.updateTCPBuffer(receiveBuffer, (byte) Packet.TCPHeader.FIN, tcb.mySequenceNum, tcb.myAcknowledgementNum, 0);
+                        tcb.mySequenceNum++; // FIN counts as a byte
+                    }
                     outputQueue.offer(receiveBuffer);
                 } catch (IOException e1) {
                     e1.printStackTrace();
