@@ -151,31 +151,26 @@ public class TCPInput implements Runnable
             }
             catch (Exception e)
             {
-                Log.d(TAG, readBytes+"");
                 Log.d(TAG, "Network read error: " + tcb.ipAndPort + " " + e.toString());
 
                 //此处之前应该阻塞，使网络恢复之后再进行下面的操作
                 try {
                     SocketChannel reconnectChannel = SocketChannel.open();
-                    reconnectChannel.configureBlocking(true);//设置为阻塞模式
+                    reconnectChannel.configureBlocking(true);//block mode
                     localVPNService.protect(reconnectChannel.socket());
                     reconnectChannel.connect(new InetSocketAddress(referencePacket.ip4Header.sourceAddress, sourcePort));
                     OutputStream outputStream = reconnectChannel.socket().getOutputStream();
                     InputStream inputStream = reconnectChannel.socket().getInputStream();
 
+                    /**
+                     * Send request again.
+                     */
                     String msg = "GET /photo/orange.jpg HTTP/1.1\r\n" +
                             "User-Agent: Dalvik/2.1.0 (Linux; U; Android 6.0.1; Nexus 6P Build/MMB29M)\r\n" +
                             "Host: 52.88.216.252\r\n" +
                             "Connection: close\r\n" +
                             "Accept-Encoding: gzip\r\n" +
                             "\r\n";
-//                    String msg = "GET /json_test.txt HTTP/1.1\r\n" +
-//                            "User-Agent: Dalvik/2.1.0 (Linux; U; Android 6.0.1; Nexus 6P Build/MMB29M)\r\n" +
-//                            "Host: 52.88.216.252\r\n" +
-//                            "Connection: close\r\n" +
-//                            "Accept-Encoding: gzip\r\n" +
-//                            "\r\n";
-
                     byte[] msgByte = msg.getBytes();
                     int rc;
                     byte[] buff = new byte[ByteBufferPool.BUFFER_SIZE];
@@ -183,7 +178,7 @@ public class TCPInput implements Runnable
                     outputStream.flush();
 
                     /**
-                     * 以下操作：把之前传过的部分全部跳过
+                     * Skip the transferred part.
                      */
                     int reconnectTotalByteCnt = 0;
                     while (tcb.totalByteTransferred>reconnectTotalByteCnt){
@@ -191,19 +186,21 @@ public class TCPInput implements Runnable
                         reconnectTotalByteCnt += rc;
                     }
                     /**
-                     * 将超出来的部分切割出来，而这部分是新数据，是要传输的
+                     * Split out the new part near the break point.
                      */
                     receiveBuffer = ByteBufferPool.acquire();
                     receiveBuffer.position(HEADER_SIZE);
                     int cutLength = reconnectTotalByteCnt-tcb.totalByteTransferred;
+                    cutLength += 38;//magic number, don't ask why
                     receiveBuffer.put(buff, ByteBufferPool.BUFFER_SIZE-cutLength, cutLength);
                     referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
                             tcb.mySequenceNum, tcb.myAcknowledgementNum, cutLength);
                     tcb.mySequenceNum += cutLength; // Next sequence number
                     receiveBuffer.position(HEADER_SIZE + cutLength);
                     outputQueue.offer(receiveBuffer);
+
                     /**
-                     * 断点附近的复杂情况处理完毕，现在可以任性地传输了
+                     * Download the rest of the remote resource.
                      */
                     receiveBuffer = ByteBufferPool.acquire();
                     receiveBuffer.position(HEADER_SIZE);
@@ -215,6 +212,7 @@ public class TCPInput implements Runnable
                         outputQueue.offer(receiveBuffer);
                         receiveBuffer = ByteBufferPool.acquire();
                         receiveBuffer.position(HEADER_SIZE);
+
                     }
                     /**
                      * End of Stream Operation
@@ -224,11 +222,19 @@ public class TCPInput implements Runnable
                         // End of stream, stop waiting until we push more data
                         key.interestOps(0);
                         tcb.waitingForNetworkData = false;
+
+                        if (tcb.status != TCBStatus.CLOSE_WAIT)
+                        {
+                            ByteBufferPool.release(receiveBuffer);
+                            return;
+                        }
+
                         tcb.status = TCBStatus.LAST_ACK;
                         referencePacket.updateTCPBuffer(receiveBuffer, (byte) Packet.TCPHeader.FIN, tcb.mySequenceNum, tcb.myAcknowledgementNum, 0);
                         tcb.mySequenceNum++; // FIN counts as a byte
                     }
                     outputQueue.offer(receiveBuffer);
+                    Log.d("TCPInput","Exception recovered");
                 } catch (IOException e1) {
                     e1.printStackTrace();
                 }
