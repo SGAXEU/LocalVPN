@@ -199,6 +199,7 @@ public class TCPInput implements Runnable
                     receiveBuffer.position(HEADER_SIZE + cutLength);
                     outputQueue.offer(receiveBuffer);
 
+                    tcb.totalByteTransferred+=cutLength;
                     /**
                      * Download the rest of the remote resource.
                      */
