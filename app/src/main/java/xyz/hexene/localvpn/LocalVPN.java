@@ -28,17 +28,17 @@ import android.view.View;
 import android.widget.Button;
 
 import java.nio.Buffer;
+import java.util.HashMap;
 
 
 public class LocalVPN extends ActionBarActivity
 {
 
-    public static Button reconnectBtn;
-
-
     private static final int VPN_REQUEST_CODE = 0x0F;
-
+    private Intent vpnIntent;
     private boolean waitingForVPNStart;
+
+    MonitorWifiRTTThread monitorWifiRTTThread;
 
     private BroadcastReceiver vpnStateReceiver = new BroadcastReceiver()
     {
@@ -68,7 +68,13 @@ public class LocalVPN extends ActionBarActivity
             }
         });
 
-        reconnectBtn = (Button) findViewById(R.id.reconnect);
+//        final Button reconnectBtn = (Button) findViewById(R.id.disconnectVPN);
+
+        Constant.context = this;
+        Constant.requestBufferMap = new HashMap<>();
+        Constant.DEFAULT_TRANSMISSION = Constant.WIFI_TRANSMISSION;
+        monitorWifiRTTThread = new MonitorWifiRTTThread();
+        monitorWifiRTTThread.start();
 
         waitingForVPNStart = false;
         LocalBroadcastManager.getInstance(this).registerReceiver(vpnStateReceiver,
@@ -77,7 +83,7 @@ public class LocalVPN extends ActionBarActivity
 
     private void startVPN()
     {
-        Intent vpnIntent = VpnService.prepare(this);
+        vpnIntent = VpnService.prepare(this);
         if (vpnIntent != null)
             startActivityForResult(vpnIntent, VPN_REQUEST_CODE);
         else
@@ -101,6 +107,13 @@ public class LocalVPN extends ActionBarActivity
         super.onResume();
 
         enableButton(!waitingForVPNStart && !LocalVPNService.isRunning());
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        monitorWifiRTTThread.stop();
+        monitorWifiRTTThread.destroy();
     }
 
     private void enableButton(boolean enable)

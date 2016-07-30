@@ -137,112 +137,15 @@ public class TCPInput implements Runnable
             Packet referencePacket = tcb.referencePacket;
             SocketChannel inputChannel = (SocketChannel) key.channel();
 
-            InetAddress destinationAddress = referencePacket.ip4Header.destinationAddress;
-            Packet.TCPHeader tcpHeader = referencePacket.tcpHeader;
-            int destinationPort = tcpHeader.destinationPort;
-            int sourcePort = tcpHeader.sourcePort;
-
-//                Log.d("###","Src: "+referencePacket.ip4Header.sourceAddress +":"+ sourcePort
-//                        + "\nDest: "+destinationAddress+":"+destinationPort);
             try
             {
                 readBytes = inputChannel.read(receiveBuffer);
                 tcb.totalByteTransferred+=readBytes;
             }
-            catch (Exception e)
+            catch (Exception e) //retry
             {
                 Log.d(TAG, "Network read error: " + tcb.ipAndPort + " " + e.toString());
-
-                //此处之前应该阻塞，使网络恢复之后再进行下面的操作
-                try {
-                    SocketChannel reconnectChannel = SocketChannel.open();
-                    reconnectChannel.configureBlocking(true);//block mode
-                    localVPNService.protect(reconnectChannel.socket());
-                    reconnectChannel.connect(new InetSocketAddress(referencePacket.ip4Header.sourceAddress, sourcePort));
-                    OutputStream outputStream = reconnectChannel.socket().getOutputStream();
-                    InputStream inputStream = reconnectChannel.socket().getInputStream();
-
-                    /**
-                     * Send request again.
-                     */
-                    String msg = "GET /photo/orange.jpg HTTP/1.1\r\n" +
-                            "User-Agent: Dalvik/2.1.0 (Linux; U; Android 6.0.1; Nexus 6P Build/MMB29M)\r\n" +
-                            "Host: 52.88.216.252\r\n" +
-                            "Connection: close\r\n" +
-                            "Accept-Encoding: gzip\r\n" +
-                            "\r\n";
-                    byte[] msgByte = msg.getBytes();
-                    int rc;
-                    byte[] buff = new byte[ByteBufferPool.BUFFER_SIZE];
-                    outputStream.write(msgByte);
-                    outputStream.flush();
-
-                    /**
-                     * Skip the transferred part.
-                     */
-                    int reconnectTotalByteCnt = 0;
-                    while (tcb.totalByteTransferred>reconnectTotalByteCnt){
-                        rc = inputStream.read(buff, 0, ByteBufferPool.BUFFER_SIZE);
-                        reconnectTotalByteCnt += rc;
-                    }
-                    /**
-                     * Split out the new part near the break point.
-                     */
-                    receiveBuffer = ByteBufferPool.acquire();
-                    receiveBuffer.position(HEADER_SIZE);
-                    int cutLength = reconnectTotalByteCnt-tcb.totalByteTransferred;
-                    cutLength += 38;//magic number, don't ask why
-                    receiveBuffer.put(buff, ByteBufferPool.BUFFER_SIZE-cutLength, cutLength);
-                    referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
-                            tcb.mySequenceNum, tcb.myAcknowledgementNum, cutLength);
-                    tcb.mySequenceNum += cutLength; // Next sequence number
-                    receiveBuffer.position(HEADER_SIZE + cutLength);
-                    outputQueue.offer(receiveBuffer);
-
-                    tcb.totalByteTransferred+=cutLength;
-                    /**
-                     * Download the rest of the remote resource.
-                     */
-                    receiveBuffer = ByteBufferPool.acquire();
-                    receiveBuffer.position(HEADER_SIZE);
-                    while ((rc = reconnectChannel.read(receiveBuffer))!=-1) {
-                        referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
-                                tcb.mySequenceNum, tcb.myAcknowledgementNum, rc);
-                        tcb.mySequenceNum += rc; // Next sequence number
-                        receiveBuffer.position(HEADER_SIZE + rc);
-                        outputQueue.offer(receiveBuffer);
-                        receiveBuffer = ByteBufferPool.acquire();
-                        receiveBuffer.position(HEADER_SIZE);
-
-                    }
-                    /**
-                     * End of Stream Operation
-                     */
-                    if (rc == -1)
-                    {
-                        // End of stream, stop waiting until we push more data
-                        key.interestOps(0);
-                        tcb.waitingForNetworkData = false;
-
-                        if (tcb.status != TCBStatus.CLOSE_WAIT)
-                        {
-                            ByteBufferPool.release(receiveBuffer);
-                            return;
-                        }
-
-                        tcb.status = TCBStatus.LAST_ACK;
-                        referencePacket.updateTCPBuffer(receiveBuffer, (byte) Packet.TCPHeader.FIN, tcb.mySequenceNum, tcb.myAcknowledgementNum, 0);
-                        tcb.mySequenceNum++; // FIN counts as a byte
-                    }
-                    outputQueue.offer(receiveBuffer);
-                    Log.d("TCPInput","Exception recovered");
-                } catch (IOException e1) {
-                    e1.printStackTrace();
-                }
-
-//                referencePacket.updateTCPBuffer(receiveBuffer, (byte) Packet.TCPHeader.RST, 0, tcb.myAcknowledgementNum, 0);//给APP一个Reset信息
-//                outputQueue.offer(receiveBuffer);
-//                TCB.closeTCB(tcb);
+                retry(tcb, key);
                 return;
             }
 
@@ -272,5 +175,103 @@ public class TCPInput implements Runnable
             }
         }
         outputQueue.offer(receiveBuffer);
+    }
+
+    public void retry(TCB tcb, SelectionKey key){
+        Packet referencePacket = tcb.referencePacket;
+        int sourcePort = referencePacket.tcpHeader.sourcePort;
+        while (true) {
+            try {
+                SocketChannel reconnectChannel = SocketChannel.open();
+                reconnectChannel.configureBlocking(true);//block mode
+                localVPNService.protect(reconnectChannel.socket());
+                reconnectChannel.connect(new InetSocketAddress(referencePacket.ip4Header.sourceAddress, sourcePort));
+                OutputStream outputStream = reconnectChannel.socket().getOutputStream();
+                InputStream inputStream = reconnectChannel.socket().getInputStream();
+                tcb.channel = reconnectChannel;
+
+                ByteBuffer requestBuffer = Constant.requestBufferMap.get(tcb.ipAndPort);
+                int limit = requestBuffer.limit();
+                requestBuffer.flip();
+                byte[] msgByte = new byte[requestBuffer.remaining()];
+                for(int i=0;i<requestBuffer.remaining();i++){
+                    msgByte[i] = requestBuffer.get(requestBuffer.position()+i);
+                }
+                requestBuffer.limit(limit);
+                outputStream.write(msgByte);
+                outputStream.flush();
+
+                String showRequest = new String(msgByte);
+                Log.d("Request","Request is:");
+                Log.d("Request", showRequest);
+
+                /**
+                 * Skip the transferred part.
+                 */
+                int rc = 0;
+                byte[] buff = new byte[ByteBufferPool.BUFFER_SIZE];
+                int reconnectTotalByteCnt = 0;
+                while (tcb.totalByteTransferred > reconnectTotalByteCnt) {
+                    rc = inputStream.read(buff, 0, ByteBufferPool.BUFFER_SIZE);
+                    reconnectTotalByteCnt += rc;
+                    Log.d("already",rc+"");
+                }
+                /**
+                 * Split out the new part near the break point.
+                 */
+                ByteBuffer receiveBuffer = ByteBufferPool.acquire();
+                receiveBuffer.position(HEADER_SIZE);
+                int cutLength = reconnectTotalByteCnt - tcb.totalByteTransferred;
+
+                receiveBuffer.put(buff, rc - cutLength, cutLength);//where "38 bytes" bug happens because of "ByteBufferPool.BUFFER_SIZE-cutLength"
+
+                referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
+                        tcb.mySequenceNum, tcb.myAcknowledgementNum, cutLength);
+                tcb.mySequenceNum += cutLength; // Next sequence number
+                receiveBuffer.position(HEADER_SIZE + cutLength);
+                outputQueue.offer(receiveBuffer);
+
+                tcb.totalByteTransferred += cutLength;
+                /**
+                 * Download the rest of the remote resource.
+                 */
+                receiveBuffer = ByteBufferPool.acquire();
+                receiveBuffer.position(HEADER_SIZE);
+                while ((rc = reconnectChannel.read(receiveBuffer)) != -1) {
+                    Log.d("new",rc+"");
+                    referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
+                            tcb.mySequenceNum, tcb.myAcknowledgementNum, rc);
+                    tcb.mySequenceNum += rc; // Next sequence number
+                    receiveBuffer.position(HEADER_SIZE + rc);
+                    outputQueue.offer(receiveBuffer);
+                    receiveBuffer = ByteBufferPool.acquire();
+                    receiveBuffer.position(HEADER_SIZE);
+
+                }
+                /**
+                 * End of Stream Operation
+                 */
+                if (rc == -1) {
+                    // End of stream, stop waiting until we push more data
+                    key.interestOps(0);
+                    tcb.waitingForNetworkData = false;
+
+                    if (tcb.status != TCBStatus.CLOSE_WAIT) {
+                        ByteBufferPool.release(receiveBuffer);
+                        return;
+                    }
+
+                    tcb.status = TCBStatus.LAST_ACK;
+                    referencePacket.updateTCPBuffer(receiveBuffer, (byte) Packet.TCPHeader.FIN, tcb.mySequenceNum, tcb.myAcknowledgementNum, 0);
+                    tcb.mySequenceNum++; // FIN counts as a byte
+                }
+                outputQueue.offer(receiveBuffer);
+                Log.d("TCPInput", "Exception recovered");
+                break;
+            } catch (Exception e1) {
+                Log.d("Reconnect","failed");
+                try {Thread.sleep(500);} catch (InterruptedException e2) {e2.printStackTrace();}
+            }
+        }
     }
 }

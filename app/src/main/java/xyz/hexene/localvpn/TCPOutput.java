@@ -132,6 +132,19 @@ public class TCPOutput implements Runnable
         if (tcpHeader.isSYN())
         {
             SocketChannel outputChannel = SocketChannel.open();
+            //@author daiminglong------------------------------------------------------------
+           /* switch(Constant.DEFAULT_TRANSMISSION){
+                case Constant.WIFI_TRANSMISSION:
+                    InetSocketAddress inetSocketAddress = new InetSocketAddress(CurrentWifiInfo.currentWifiLocalAddress.getHostAddress(),0);
+                    outputChannel.socket().bind(inetSocketAddress);
+                    break;
+                case Constant.MOBILE_DATA_TRANSMISSION:
+                    InetSocketAddress inetSocketAddress = new InetSocketAddress(CurrentMobileDataInfo.currentMobileDataLocalAddress.getHostAddress(),0);
+                    outputChannel.socket().bind(inetSocketAddress);
+                    break;
+            }*/
+
+            //-------------------------------------------------------------------------------
             outputChannel.configureBlocking(false);
             vpnService.protect(outputChannel.socket());
 
@@ -215,8 +228,24 @@ public class TCPOutput implements Runnable
     {
         int payloadSize = payloadBuffer.limit() - payloadBuffer.position();
 
+        int payloadPosition = payloadBuffer.position();
         synchronized (tcb)
         {
+
+            //@author daiminglong get request
+            ByteBuffer requestBuffer = ByteBufferPool.acquire();
+            requestBuffer.put(payloadBuffer);
+            payloadBuffer.position(payloadPosition);
+            if(Constant.requestBufferMap.get(tcb.ipAndPort) != null){
+                requestBuffer.flip();
+                Constant.requestBufferMap.get(tcb.ipAndPort).put(requestBuffer);
+                ByteBufferPool.release(requestBuffer);
+            }else{
+                Constant.requestBufferMap.put(tcb.ipAndPort,requestBuffer);
+            }
+            //----------------------------------------------------------------
+
+
             SocketChannel outputChannel = tcb.channel;
             if (tcb.status == TCBStatus.SYN_RECEIVED)
             {
@@ -228,6 +257,12 @@ public class TCPOutput implements Runnable
             }
             else if (tcb.status == TCBStatus.LAST_ACK)
             {
+                //@author daiminglong request get
+                ByteBuffer buffer = Constant.requestBufferMap.get(tcb.ipAndPort);
+                ByteBufferPool.release(buffer);//释放占用的内存空间
+                Constant.requestBufferMap.remove(tcb.ipAndPort);//请求结束拿掉request
+                //---------------------------------------------------
+
                 closeCleanly(tcb, responseBuffer);
                 return;
             }

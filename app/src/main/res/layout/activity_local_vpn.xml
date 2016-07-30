@@ -15,9 +15,9 @@
         android:layout_height="wrap_content"
         android:text="@string/start_vpn" />
 
-    <Button
-        android:id="@+id/reconnect"
-        android:layout_width="fill_parent"
-        android:layout_height="wrap_content"
-        android:text="reconnect" />
+    <!--<Button-->
+        <!--android:id="@+id/disconnectVPN"-->
+        <!--android:layout_width="fill_parent"-->
+        <!--android:layout_height="wrap_content"-->
+        <!--android:text="disconnect VPN" />-->
 </LinearLayout>
