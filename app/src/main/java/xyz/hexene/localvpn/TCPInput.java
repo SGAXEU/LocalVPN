@@ -21,8 +21,10 @@ import android.util.Log;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -140,7 +142,16 @@ public class TCPInput implements Runnable
             try
             {
                 readBytes = inputChannel.read(receiveBuffer);
+
+                if (0 == tcb.totalByteTransferred){
+                    byte[] tmpByte = receiveBuffer.array();
+                    String firstString = new String(tmpByte, 0, readBytes).substring(4);//substring: skip the {0,0,0,0} head
+                    String head = firstString.split("\r\n\r\n")[0];
+                    tcb.headLength = head.length()+"\r\n\r\n".length()-HEADER_SIZE; // 4: length of "\r\n\r\n"  40: header size
+                    Log.d("headlength",""+tcb.headLength);
+                }
                 tcb.totalByteTransferred+=readBytes;
+
             }
             catch (Exception e) //retry
             {
@@ -183,6 +194,7 @@ public class TCPInput implements Runnable
         while (true) {
             try {
                 SocketChannel reconnectChannel = SocketChannel.open();
+                boolean isHTTP = true;//default is not HTTP
                 reconnectChannel.configureBlocking(true);//block mode
                 localVPNService.protect(reconnectChannel.socket());
                 reconnectChannel.connect(new InetSocketAddress(referencePacket.ip4Header.sourceAddress, sourcePort));
@@ -191,52 +203,81 @@ public class TCPInput implements Runnable
                 tcb.channel = reconnectChannel;
 
                 ByteBuffer requestBuffer = Constant.requestBufferMap.get(tcb.ipAndPort);
+
+                /**
+                 * not HTTP request
+                 */
+//                isHTTP = false;
+//                int limit = requestBuffer.limit();
+//                requestBuffer.flip();
+//                byte[] msgByte = new byte[requestBuffer.remaining()];
+//                for(int i=0;i<requestBuffer.remaining();i++){
+//                    msgByte[i] = requestBuffer.get(requestBuffer.position()+i);
+//                }
+//                requestBuffer.limit(limit);
+                //not HTTP-------end
+
+                /**
+                 * HTTP request
+                 */
+                isHTTP = true;
+                byte[] rangeFieldRequest = ("Range: bytes=" + (tcb.totalByteTransferred-tcb.headLength) + "-\r\n\r\n").getBytes();
                 int limit = requestBuffer.limit();
                 requestBuffer.flip();
-                byte[] msgByte = new byte[requestBuffer.remaining()];
+                byte[] msgByte = new byte[requestBuffer.remaining()+rangeFieldRequest.length-"\r\n".length()];// the tail of last request is "
                 for(int i=0;i<requestBuffer.remaining();i++){
                     msgByte[i] = requestBuffer.get(requestBuffer.position()+i);
                 }
+                System.arraycopy(rangeFieldRequest, 0, msgByte, requestBuffer.remaining()-"\r\n".length(), rangeFieldRequest.length);// i-2: minus the length of "\r\n"
                 requestBuffer.limit(limit);
+                //HTTP--------end
+
                 outputStream.write(msgByte);
                 outputStream.flush();
 
-                String showRequest = new String(msgByte);
-                Log.d("Request","Request is:");
-                Log.d("Request", showRequest);
+//                String showRequest = new String(msgByte);
+//                Log.d("Request","Request is:");
+//                Log.d("Request", showRequest);
 
-                /**
-                 * Skip the transferred part.
-                 */
-                int rc = 0;
+
+                int rc = 0, cutLength;
                 byte[] buff = new byte[ByteBufferPool.BUFFER_SIZE];
-                int reconnectTotalByteCnt = 0;
-                while (tcb.totalByteTransferred > reconnectTotalByteCnt) {
+                ByteBuffer receiveBuffer = ByteBufferPool.acquire();
+                receiveBuffer.position(HEADER_SIZE);
+                if (!isHTTP){//if the request is not HTTP , we have to download it from the head of the file, and skip the transferred part
+                    /**
+                     * Skip the transferred part.
+                     */
+                    int reconnectTotalByteCnt = 0;
+                    while (tcb.totalByteTransferred > reconnectTotalByteCnt) {
+                        rc = inputStream.read(buff, 0, ByteBufferPool.BUFFER_SIZE);
+                        reconnectTotalByteCnt += rc;
+                        Log.d("already", rc + "");
+                    }
+                    cutLength = reconnectTotalByteCnt - tcb.totalByteTransferred;
+
+                }else {//request if HTTP, we can download it from the last break point.
                     rc = inputStream.read(buff, 0, ByteBufferPool.BUFFER_SIZE);
-                    reconnectTotalByteCnt += rc;
-                    Log.d("already",rc+"");
+                    cutLength = rc - new String(buff, 0, rc).split("\r\n\r\n")[0].length() - "\r\n\r\n".length();// cut off the length of "\r\n\r\n"
                 }
+
                 /**
                  * Split out the new part near the break point.
                  */
-                ByteBuffer receiveBuffer = ByteBufferPool.acquire();
-                receiveBuffer.position(HEADER_SIZE);
-                int cutLength = reconnectTotalByteCnt - tcb.totalByteTransferred;
-
                 receiveBuffer.put(buff, rc - cutLength, cutLength);//where "38 bytes" bug happens because of "ByteBufferPool.BUFFER_SIZE-cutLength"
-
                 referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
                         tcb.mySequenceNum, tcb.myAcknowledgementNum, cutLength);
                 tcb.mySequenceNum += cutLength; // Next sequence number
                 receiveBuffer.position(HEADER_SIZE + cutLength);
                 outputQueue.offer(receiveBuffer);
-
                 tcb.totalByteTransferred += cutLength;
-                /**
-                 * Download the rest of the remote resource.
-                 */
+
                 receiveBuffer = ByteBufferPool.acquire();
                 receiveBuffer.position(HEADER_SIZE);
+
+                /**
+                 * Download the rest of the file.
+                 */
                 while ((rc = reconnectChannel.read(receiveBuffer)) != -1) {
                     Log.d("new",rc+"");
                     referencePacket.updateTCPBuffer(receiveBuffer, (byte) (Packet.TCPHeader.PSH | Packet.TCPHeader.ACK),
