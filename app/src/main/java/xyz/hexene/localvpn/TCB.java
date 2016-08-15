@@ -50,6 +50,7 @@ public class TCB
     public SelectionKey selectionKey;
 
     public int totalByteTransferred = 0;
+    public int headLength = 0;
 
     private static final int MAX_CACHE_SIZE = 50; // XXX: Is this ideal?
     private static LRUCache<String, TCB> tcbCache =
@@ -82,14 +83,13 @@ public class TCB
                SocketChannel channel, Packet referencePacket)
     {
         this.ipAndPort = ipAndPort;
-
         this.mySequenceNum = mySequenceNum;
         this.theirSequenceNum = theirSequenceNum;
         this.myAcknowledgementNum = myAcknowledgementNum;
         this.theirAcknowledgementNum = theirAcknowledgementNum;
-
         this.channel = channel;
         this.referencePacket = referencePacket;
+        this.totalByteTransferred = 0;
     }
 
     public static void closeTCB(TCB tcb)

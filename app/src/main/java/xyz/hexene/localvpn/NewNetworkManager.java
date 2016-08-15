@@ -282,24 +282,23 @@ class MonitorWifiRTTThread extends Thread{
                 //wifi is disabled
                 //switch and retry
                 Constant.DEFAULT_TRANSMISSION = Constant.MOBILE_DATA_TRANSMISSION;
-                Log.d("#############","############");
                 isLastWifiOn = 0;
             }else{
                 //wifi is enabled
                 //get wifi RTT actively
                 switch (isLastWifiOn){
                     case 1:
-                        currentWifiRTT = NewWifiManager.getWifiRTT("52.88.216.252");
-                        if(currentWifiRTT > Constant.WIFI_RTT_LOW_THRESHOLD){
-                            newMobileDataManager.enableMobileData();//higher than low threshold, prepare cellular
-                            if(currentWifiRTT > Constant.WIFI_RTT_HIGH_THRESHOLD){
-                                Constant.DEFAULT_TRANSMISSION = Constant.MOBILE_DATA_TRANSMISSION;
-                                newWifiManager.disableWifi();//higher than high threshold, kill wifi
-                            }
-                        }
+//                        currentWifiRTT = NewWifiManager.getWifiRTT("52.88.216.252");
+//                        if(currentWifiRTT > Constant.WIFI_RTT_LOW_THRESHOLD){
+//                            newMobileDataManager.enableMobileData();//higher than low threshold, prepare cellular
+//                            if(currentWifiRTT > Constant.WIFI_RTT_HIGH_THRESHOLD){
+//                                Constant.DEFAULT_TRANSMISSION = Constant.MOBILE_DATA_TRANSMISSION;
+//                                newWifiManager.disableWifi();//higher than high threshold, kill wifi
+//                            }
+//                        }
                         break;
                     case 0:
-                        newMobileDataManager.disableMobileData();
+//                        newMobileDataManager.disableMobileData();
                         break;
                 }
                 isLastWifiOn = 1;
