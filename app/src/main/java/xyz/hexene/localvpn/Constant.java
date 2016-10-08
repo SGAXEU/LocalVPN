@@ -22,5 +22,7 @@ public class Constant {
     public static int WIFI_RTT_LOW_THRESHOLD = 250;//unit ms
     public static int WIFI_RTT_HIGH_THRESHOLD = 300;//unit ms
 
+    public static int QoE_BANDWIDTH = 200;//unit KBps
+
     public static Context context;
 }

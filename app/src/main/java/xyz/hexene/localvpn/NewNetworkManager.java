@@ -5,6 +5,10 @@ import android.util.Log;
 
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -267,6 +271,20 @@ class MonitorWifiRTTThread extends Thread{
         NewMobileDataManager newMobileDataManager = new NewMobileDataManager(Constant.context);
         NewWifiManager newWifiManager = new NewWifiManager(Constant.context);
         int isLastWifiOn = 1;
+        int speedSum = 0;
+        int count = 0;
+        boolean flag = false;
+        final int CNT = 5;
+
+        FileOutputStream fos = null;
+        String path = Constant.context.getFilesDir().getAbsolutePath()+"/SpeedData";
+        Log.d("path",path);
+        try {
+            fos = new FileOutputStream(new File(path));
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+
         //monitor wifi's RTT every 2 seconds
         while(true){
             //sleep()
@@ -276,6 +294,8 @@ class MonitorWifiRTTThread extends Thread{
                 e.printStackTrace();
             }
 
+
+            int speed = NewWifiManager.getNetworkSpeed()/2;
 
             //is wifi enable
             if(!NewWifiManager.isWifiEnabled()){
@@ -288,6 +308,37 @@ class MonitorWifiRTTThread extends Thread{
                 //get wifi RTT actively
                 switch (isLastWifiOn){
                     case 1:
+
+//                        if (speed == 0){
+//                            count = 0;
+//                            flag = false;
+//                            speedSum = 0;
+//                            break;
+//                        }
+//                        Log.d("speed",speed+"\t\t"+speedSum);
+//
+//                        count++;
+//                        if (count==CNT){
+//                            count=0;
+//                            if (flag) {
+//                                flag = false;
+//                                if (speedSum / CNT < (Constant.QoE_BANDWIDTH)) {
+//                                    Log.d("Change", "########################shutdown wifi########################");
+////                                    newWifiManager.disableWifi();
+//                                }
+//                                speedSum = 0;
+//                            }
+//                        }
+//                        if (!flag && speed<Constant.QoE_BANDWIDTH){
+//                            count = 0;
+//                            flag = true;
+//                            speedSum = 0;
+//                            Log.i("flag", "true...........");
+//                        }
+//                        speedSum+=speed;
+
+
+
 //                        currentWifiRTT = NewWifiManager.getWifiRTT("52.88.216.252");
 //                        if(currentWifiRTT > Constant.WIFI_RTT_LOW_THRESHOLD){
 //                            newMobileDataManager.enableMobileData();//higher than low threshold, prepare cellular
@@ -296,6 +347,8 @@ class MonitorWifiRTTThread extends Thread{
 //                                newWifiManager.disableWifi();//higher than high threshold, kill wifi
 //                            }
 //                        }
+
+
                         break;
                     case 0:
 //                        newMobileDataManager.disableMobileData();

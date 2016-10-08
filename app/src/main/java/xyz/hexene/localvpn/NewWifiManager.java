@@ -4,6 +4,7 @@ import android.content.Context;
 import android.net.ConnectivityManager;
 import android.net.DhcpInfo;
 import android.net.NetworkInfo;
+import android.net.TrafficStats;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.util.Log;
@@ -111,6 +112,23 @@ public class NewWifiManager extends NewNetworkManager{
         }
 
         return getRTTThread.getRttTime();
+    }
+
+    public static int getNetworkSpeed(){
+        long lastTotalRxBytes = TrafficStats.getTotalRxBytes();
+        long lastTimeStamp = System.currentTimeMillis();
+        try {
+            Thread.sleep(500);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+
+        long nowTotalRxBytes = TrafficStats.getTotalRxBytes();
+        long nowTimeStamp = System.currentTimeMillis();
+
+        int speed = (int) ((nowTotalRxBytes - lastTotalRxBytes) *1.0 / (nowTimeStamp - lastTimeStamp));
+
+        return speed;
     }
 
 }

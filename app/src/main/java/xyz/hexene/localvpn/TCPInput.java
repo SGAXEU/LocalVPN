@@ -156,6 +156,7 @@ public class TCPInput implements Runnable
             catch (Exception e) //retry
             {
                 Log.d(TAG, "Network read error: " + tcb.ipAndPort + " " + e.toString());
+                e.printStackTrace();
                 retry(tcb, key);
                 return;
             }
@@ -235,9 +236,9 @@ public class TCPInput implements Runnable
                 outputStream.write(msgByte);
                 outputStream.flush();
 
-//                String showRequest = new String(msgByte);
-//                Log.d("Request","Request is:");
-//                Log.d("Request", showRequest);
+                String showRequest = new String(msgByte);
+                Log.d("Request","Request is:");
+                Log.d("Request", showRequest);
 
 
                 int rc = 0, cutLength;
@@ -256,7 +257,7 @@ public class TCPInput implements Runnable
                     }
                     cutLength = reconnectTotalByteCnt - tcb.totalByteTransferred;
 
-                }else {//request if HTTP, we can download it from the last break point.
+                }else {//request is HTTP, we can download it from the last break point.
                     rc = inputStream.read(buff, 0, ByteBufferPool.BUFFER_SIZE);
                     cutLength = rc - new String(buff, 0, rc).split("\r\n\r\n")[0].length() - "\r\n\r\n".length();// cut off the length of "\r\n\r\n"
                 }
@@ -310,6 +311,7 @@ public class TCPInput implements Runnable
                 Log.d("TCPInput", "Exception recovered");
                 break;
             } catch (Exception e1) {
+//                e1.printStackTrace();
                 Log.d("Reconnect","failed");
                 try {Thread.sleep(500);} catch (InterruptedException e2) {e2.printStackTrace();}
             }

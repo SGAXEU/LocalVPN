@@ -85,9 +85,6 @@ public class TCPOutput implements Runnable
                 int sourcePort = tcpHeader.sourcePort;
 
 
-//                Log.d("###","Src: "+currentPacket.ip4Header.sourceAddress +":"+ sourcePort
-//                        + "\nDest: "+destinationAddress+":"+destinationPort);
-
 
                 String ipAndPort = destinationAddress.getHostAddress() + ":" +
                         destinationPort + ":" + sourcePort;
@@ -132,19 +129,6 @@ public class TCPOutput implements Runnable
         if (tcpHeader.isSYN())
         {
             SocketChannel outputChannel = SocketChannel.open();
-            //@author daiminglong------------------------------------------------------------
-           /* switch(Constant.DEFAULT_TRANSMISSION){
-                case Constant.WIFI_TRANSMISSION:
-                    InetSocketAddress inetSocketAddress = new InetSocketAddress(CurrentWifiInfo.currentWifiLocalAddress.getHostAddress(),0);
-                    outputChannel.socket().bind(inetSocketAddress);
-                    break;
-                case Constant.MOBILE_DATA_TRANSMISSION:
-                    InetSocketAddress inetSocketAddress = new InetSocketAddress(CurrentMobileDataInfo.currentMobileDataLocalAddress.getHostAddress(),0);
-                    outputChannel.socket().bind(inetSocketAddress);
-                    break;
-            }*/
-
-            //-------------------------------------------------------------------------------
             outputChannel.configureBlocking(false);
             vpnService.protect(outputChannel.socket());
 
